@@ -57,7 +57,7 @@ env.filters['rename'] = rename
 try:
     env.globals['git_revision'] = subprocess.run(('git', 'rev-parse', '--short', 'HEAD'), capture_output=True).stdout.decode('utf8').strip('\r\n\t ')
 except:
-    env.globals['git_revison'] = 'unknown'
+    env.globals['git_revision'] = 'unknown'
 
 now = datetime.datetime.utcnow()
 env.globals['timestamp'] = now.isoformat()
