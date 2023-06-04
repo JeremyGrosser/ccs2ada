@@ -88,8 +88,11 @@ def parse_file(outdir, device_path):
             module = {
                 'id': module_node.attrib.get('id') or module_node.attrib.get('name'),
                 'path': module_path,
+                'size': int(instance_node.attrib['size'], 16) * 8,
                 'registers': [],
-                'instances': [{'baseaddr': hexformat(instance_node.attrib['baseaddr'])}],
+                'instances': [{
+                    'baseaddr': hexformat(instance_node.attrib['baseaddr']),
+                }],
             }
             if not module['id']:
                 raise Exception('No id for module at', module_path)

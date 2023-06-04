@@ -37,7 +37,8 @@ package {{ device.id }}.{{ module.id }} is
       {% for register in module.registers -%}
       {{ register.id|rename }} : aliased {{ register.id }}_Register;
       {% endfor %}
-   end record;
+   end record
+      with Size => {{ module.size }};
 
    for {{ module.id }}_Peripheral use record
       {% for register in module.registers -%}
