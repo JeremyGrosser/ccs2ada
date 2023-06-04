@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+#
+#  ccs2ada
+#  Copyright 2023 Jeremy Grosser <jeremy@synack.me>
+#  SPDX-License-Identifier: BSD-3-Clause
+#
+#  The directory called "targetdb" containing device definitions comes from TI
+#  Code Composer Studio. On my machine, it's located at:
+#
+#  ~/ti/ccs1230/ccs/ccs_base/common/targetdb
+#
+#  It might be in a different location depending on your installation.
+#
+import xml.etree.ElementTree as ET
+import subprocess
+import datetime
+import argparse
+import os.path
+import os
+
+import jinja2
+
+# Reserved words in Ada 2022. Any register names that conflict with these are
+# suffixed with '_k'
+RESERVED = {
+    'abort', 'abs', 'abstract', 'accept', 'access', 'aliased', 'all', 'and',
+    'array', 'at', 'begin', 'body', 'case', 'constant', 'declare', 'delay',
+    'delta', 'digits', 'do', 'else', 'elsif', 'end', 'entry', 'exception',
+    'exit', 'for', 'function', 'generic', 'goto', 'if', 'in', 'interface',
+    'is', 'limited', 'loop', 'mod', 'new', 'not', 'null', 'of', 'or', 'others',
+    'out', 'overriding', 'package', 'parallel', 'pragma', 'private',
+    'procedure', 'protected', 'raise', 'range', 'record', 'rem', 'renames',
+    'requeue', 'return', 'reverse', 'select', 'separate', 'some', 'subtype',
+    'synchronized', 'tagged', 'task', 'terminate', 'then', 'type', 'until',
+    'use', 'when', 'while', 'with', 'xor'
+}
+
+env = jinja2.Environment(loader=jinja2.FileSystemLoader('templates'))
+
+
+def hexformat(x):
+    if x.startswith('0x'):
+        return '16#' + x[2:] + '#'
+    else:
+        return x
+
+
+def rename(name):
+    if name.lower() in RESERVED:
+        return name + '_k'
+    else:
+        return name
+
+
+env.filters['rename'] = rename
+
+try:
+    env.globals['git_revision'] = subprocess.run(('git', 'rev-parse', '--short', 'HEAD'), capture_output=True).stdout.decode('utf8').strip('\r\n\t ')
+except:
+    env.globals['git_revison'] = 'unknown'
+
+now = datetime.datetime.utcnow()
+env.globals['timestamp'] = now.isoformat()
+
+
+def patch_RTI_INTENA(register):
+    # SETDMA,CLEARDMA and SETINT,CLEARINT fields overlap. DMA fields are not
+    # mentioned in the documentation, so assume this is a mistake.
+    register['bitfields'] = [x for x in register['bitfields'] if not x['id'].startswith('SETDMA') and not x['id'].startswith('CLEARDMA')]
+
+
+def parse_file(outdir, device_path):
+    device_path = os.path.normpath(device_path)
+    device_tree = ET.parse(device_path)
+    device_node = device_tree.getroot()
+    device = {
+        'id': device_node.attrib['id'],
+        'path': device_path,
+        'modules': {}
+    }
+
+    for cpu_node in device_node.iter('cpu'):
+        for instance_node in cpu_node.iter('instance'):
+            module_path = os.path.join(os.path.dirname(device_path), instance_node.attrib['href'])
+            module_path = os.path.normpath(module_path)
+            module_tree = ET.parse(module_path)
+            module_node = module_tree.getroot()
+            module = {
+                'id': module_node.attrib.get('id') or module_node.attrib.get('name'),
+                'path': module_path,
+                'registers': [],
+                'instances': [{'baseaddr': hexformat(instance_node.attrib['baseaddr'])}],
+            }
+            if not module['id']:
+                raise Exception('No id for module at', module_path)
+
+
+            if module['id'] in device['modules']:
+                existing = device['modules'][module['id']]
+                if existing['path'] != module['path']:
+                    print('WARNING: Multiple definitions of', module['id'], ':')
+                    print(existing['path'])
+                    print(module['path'])
+                existing['instances'].append(module['instances'][0])
+                continue
+
+            offset = 0
+
+            for register_node in module_node.iter('register'):
+                register = {
+                    'id': register_node.attrib['id'],
+                    'size': int(register_node.attrib['width']),
+                    'description': register_node.attrib.get('description', ''),
+                    'bitfields': [],
+                }
+                if 'offset' in register_node.attrib:
+                    offset = int(register_node.attrib['offset'], 16)
+                    register['offset'] = offset
+                else:
+                    offset += int(register['size'] / 8)
+                    register['offset'] = offset
+
+                for bitfield_node in register_node.iter('bitfield'):
+                    bitfield = {
+                        'id': bitfield_node.attrib['id'],
+                        'description': bitfield_node.attrib['description'],
+                        'size': int(bitfield_node.attrib['width']),
+                        'resetval': hexformat(bitfield_node.attrib.get('resetval', '0x0')),
+                        'first': int(bitfield_node.attrib['end']),
+                        'last': int(bitfield_node.attrib['begin']),
+                    }
+                    register['bitfields'].append(bitfield)
+
+                if module['id'] == 'Rti' and register['id'] in ('RTISETINTENA', 'RTICLEARINTENA'):
+                    patch_RTI_INTENA(register)
+
+                module['registers'].append(register)
+            device['modules'][module['id']] = module
+
+    device_template = env.get_template('device.ads')
+    path = os.path.join(outdir, '%s.ads' % device['id'])
+    path = path.lower()
+    with open(path, 'w') as fd:
+        fd.write(device_template.render(device=device))
+
+    module_template = env.get_template('module.ads')
+    for module in device['modules'].values():
+        path = os.path.join(outdir, '%s-%s.ads' % (device['id'], module['id']))
+        path = path.lower()
+        print(path)
+        with open(path, 'w') as fd:
+            fd.write(module_template.render(device=device, module=module))
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(
+        prog='ccs2ada',
+        description='Translates Texas Instruments Code Composer Studio device definitions to Ada package specifications',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument('--targetdb',
+        default='~/ti/ccs1230/ccs/ccs_base/common/targetdb',
+        help='Path to targetdb, usually under ccs_base')
+    p.add_argument('--output',
+        default='./gen',
+        help='Path to output directory')
+    p.add_argument('device',
+        default='rm42l432',
+        help='Device to generate specs for. See targetdb/devices/')
+    args = p.parse_args()
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
+
+    device_file = os.path.join(os.path.expanduser(args.targetdb), 'devices', args.device + '.xml')
+    parse_file(args.output, device_file)

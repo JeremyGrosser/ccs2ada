@@ -1,0 +1,5 @@
+targetdb
+gen
+*.swp
+*.pyc
+*.pyo
