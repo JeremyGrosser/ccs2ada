@@ -35,7 +35,7 @@ RESERVED = {
     'use', 'when', 'while', 'with', 'xor'
 }
 
-env = jinja2.Environment(loader=jinja2.FileSystemLoader('templates'))
+env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(os.path.dirname(__file__), 'templates')))
 
 
 def hexformat(x):
@@ -88,7 +88,7 @@ def parse_file(outdir, device_path):
             module = {
                 'id': module_node.attrib.get('id') or module_node.attrib.get('name'),
                 'path': module_path,
-                'size': int(instance_node.attrib['size'], 16) * 8,
+                'size': (int(instance_node.attrib['size'], 16) + 1) * 8,
                 'registers': [],
                 'instances': [{
                     'baseaddr': hexformat(instance_node.attrib['baseaddr']),
@@ -121,6 +121,11 @@ def parse_file(outdir, device_path):
                 else:
                     offset += int(register['size'] / 8)
                     register['offset'] = offset
+
+                if register['offset'] > (module['size'] / 8):
+                    print('WARNING: Register %s.%s offset outside of module address space, not generating.' % 
+                        (module['id'], register['id']))
+                    continue
 
                 for bitfield_node in register_node.iter('bitfield'):
                     bitfield = {

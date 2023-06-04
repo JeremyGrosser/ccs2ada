@@ -5,6 +5,7 @@
 with HAL; use HAL;
 with System;
 
+pragma Warnings (Off, "bits of *unused*");
 package {{ device.id }}.{{ module.id }} is
    pragma Preelaborate;
 
