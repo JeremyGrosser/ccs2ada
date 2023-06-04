@@ -18,7 +18,8 @@ package {{ device.id }}.{{ module.id }} is
       {{ bitfield.id|rename }} : {{ register.id }}_{{ bitfield.id }}_Field := {{ bitfield.resetval }};
       --  {{ bitfield.description }}
       {% endfor %}
-   end record;
+   end record
+      with Size => {{ register.size }};
 
    for {{ register.id }}_Register use record
       {% for bitfield in register.bitfields -%}
