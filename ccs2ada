@@ -94,7 +94,6 @@ def parse_file(outdir, device_path):
             if not module['id']:
                 raise Exception('No id for module at', module_path)
 
-
             if module['id'] in device['modules']:
                 existing = device['modules'][module['id']]
                 if existing['path'] != module['path']:
@@ -108,7 +107,7 @@ def parse_file(outdir, device_path):
 
             for register_node in module_node.iter('register'):
                 register = {
-                    'id': register_node.attrib['id'],
+                    'id': register_node.attrib['id'].strip('_'),
                     'size': int(register_node.attrib['width']),
                     'description': register_node.attrib.get('description', ''),
                     'bitfields': [],
@@ -122,7 +121,7 @@ def parse_file(outdir, device_path):
 
                 for bitfield_node in register_node.iter('bitfield'):
                     bitfield = {
-                        'id': bitfield_node.attrib['id'],
+                        'id': bitfield_node.attrib['id'].strip('_'),
                         'description': bitfield_node.attrib['description'],
                         'size': int(bitfield_node.attrib['width']),
                         'resetval': hexformat(bitfield_node.attrib.get('resetval', '0x0')),
