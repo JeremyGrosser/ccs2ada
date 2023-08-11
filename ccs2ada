@@ -39,10 +39,10 @@ env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(os.path.dir
 
 
 def hexformat(x):
-    if x.startswith('0x'):
+    if isinstance(x, str) and x.startswith('0x'):
         return '16#' + x[2:] + '#'
     else:
-        return x
+        return '16#%08x#' % x
 
 
 def rename(name):
@@ -117,15 +117,15 @@ def parse_file(outdir, device_path):
                 }
                 if 'offset' in register_node.attrib:
                     offset = int(register_node.attrib['offset'], 16)
-                    register['offset'] = offset
+                    register['offset'] = hexformat(offset)
                 else:
                     offset += int(register['size'] / 8)
-                    register['offset'] = offset
+                    register['offset'] = hexformat(offset)
 
-                if register['offset'] > (module['size'] / 8):
-                    print('WARNING: Register %s.%s offset outside of module address space, not generating.' % 
-                        (module['id'], register['id']))
-                    continue
+                #if register['offset'] > (module['size'] / 8):
+                #    print('WARNING: Register %s.%s offset outside of module address space, not generating.' % 
+                #        (module['id'], register['id']))
+                #    continue
 
                 for bitfield_node in register_node.iter('bitfield'):
                     bitfield = {
