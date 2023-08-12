@@ -38,11 +38,15 @@ RESERVED = {
 env = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(os.path.dirname(__file__), 'templates')))
 
 
-def hexformat(x):
+def hex2int(x):
     if isinstance(x, str) and x.startswith('0x'):
-        return '16#' + x[2:] + '#'
+        return int(x[2:], 16)
     else:
-        return '16#%08x#' % x
+        return x
+
+
+def hexformat(x):
+    return '16#%X#' % x
 
 
 def rename(name):
@@ -53,6 +57,7 @@ def rename(name):
 
 
 env.filters['rename'] = rename
+env.filters['hexformat'] = hexformat
 
 try:
     env.globals['git_revision'] = subprocess.run(('git', 'rev-parse', '--short', 'HEAD'), capture_output=True).stdout.decode('utf8').strip('\r\n\t ')
@@ -91,7 +96,7 @@ def parse_file(outdir, device_path):
                 'size': (int(instance_node.attrib['size'], 16) + 1) * 8,
                 'registers': [],
                 'instances': [{
-                    'baseaddr': hexformat(instance_node.attrib['baseaddr']),
+                    'baseaddr': hex2int(instance_node.attrib['baseaddr']),
                 }],
             }
             if not module['id']:
@@ -115,24 +120,24 @@ def parse_file(outdir, device_path):
                     'description': register_node.attrib.get('description', ''),
                     'bitfields': [],
                 }
+
                 if 'offset' in register_node.attrib:
                     offset = int(register_node.attrib['offset'], 16)
-                    register['offset'] = hexformat(offset)
+                    register['offset'] = hex2int(offset)
                 else:
                     offset += int(register['size'] / 8)
-                    register['offset'] = hexformat(offset)
+                    register['offset'] = hex2int(offset)
 
-                #if register['offset'] > (module['size'] / 8):
-                #    print('WARNING: Register %s.%s offset outside of module address space, not generating.' % 
-                #        (module['id'], register['id']))
-                #    continue
+                if register['offset'] > (module['size'] / 8):
+                    print('WARNING: Register %s.%s offset is outside of module address space.' % 
+                        (module['id'], register['id']))
 
                 for bitfield_node in register_node.iter('bitfield'):
                     bitfield = {
                         'id': bitfield_node.attrib['id'].strip('_'),
                         'description': bitfield_node.attrib['description'],
                         'size': int(bitfield_node.attrib['width']),
-                        'resetval': hexformat(bitfield_node.attrib.get('resetval', '0x0')),
+                        'resetval': hex2int(bitfield_node.attrib.get('resetval', '0x0')),
                         'first': int(bitfield_node.attrib['end']),
                         'last': int(bitfield_node.attrib['begin']),
                     }
@@ -142,7 +147,11 @@ def parse_file(outdir, device_path):
                     patch_RTI_INTENA(register)
 
                 module['registers'].append(register)
-            device['modules'][module['id']] = module
+
+            if len(module['registers']) == 0:
+                print('WARNING: Module %s has no registers!' % module['id'])
+            else:
+                device['modules'][module['id']] = module
 
     device_template = env.get_template('device.ads')
     path = os.path.join(outdir, '%s.ads' % device['id'])

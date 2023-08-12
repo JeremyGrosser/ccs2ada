@@ -20,7 +20,7 @@ package {{ device.id }}.{{ module.id }} is
       --  {{ bitfield.description }}
       {% endfor %}
    end record
-      with Size => {{ register.size }};
+      with Volatile_Full_Access, Size => {{ register.size }};
 
    for {{ register.id }}_Register use record
       {% for bitfield in register.bitfields -%}
@@ -43,13 +43,13 @@ package {{ device.id }}.{{ module.id }} is
 
    for {{ module.id }}_Peripheral use record
       {% for register in module.registers -%}
-      {{ register.id|rename }} at {{ register.offset }} range 0 .. {{ register.size-1 }};
+      {{ register.id|rename }} at {{ register.offset|hexformat }} range 0 .. {{ register.size-1 }};
       {% endfor %}
    end record;
 
    {% for instance in module.instances -%}
    {{ module.id }}{% if module.instances|length > 1 %}{{ loop.index0 }}{% endif %}_Periph : aliased {{ module.id }}_Peripheral
-      with Import, Address => System'To_Address ({{ instance.baseaddr }});
+      with Import, Address => System'To_Address ({{ instance.baseaddr|hexformat }});
    {% endfor %}
 
 end {{ device.id }}.{{ module.id }};
