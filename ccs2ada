@@ -68,10 +68,51 @@ now = datetime.datetime.utcnow()
 env.globals['timestamp'] = now.isoformat()
 
 
-def patch_RTI_INTENA(register):
-    # SETDMA,CLEARDMA and SETINT,CLEARINT fields overlap. DMA fields are not
-    # mentioned in the documentation, so assume this is a mistake.
-    register['bitfields'] = [x for x in register['bitfields'] if not x['id'].startswith('SETDMA') and not x['id'].startswith('CLEARDMA')]
+def walk_registers(parent_node, module, base_offset=None):
+    if base_offset is None:
+        base_offset = 0
+
+    registers = []
+    offset = 0
+
+    for register_node in parent_node.findall('register'):
+        register = {
+            'id': register_node.attrib['id'].strip('_'),
+            'size': int(register_node.attrib['width']),
+            'instances': int(register_node.attrib.get('instances', 1)),
+            'description': register_node.attrib.get('description', ''),
+            'bitfields': [],
+        }
+
+        if register['id'].startswith(module['id'] + '_'):
+            register['id'] = register['id'].split('_', 1)[1]
+
+        if 'offset' in register_node.attrib:
+            offset = int(register_node.attrib['offset'], 16)
+            register['offset'] = base_offset + hex2int(offset)
+        else:
+            offset += int(register['size'] / 8)
+            register['offset'] = base_offset + hex2int(offset)
+
+        #if register['offset'] > (module['size'] / 8):
+        #    print('WARNING: Register %s.%s offset is outside of module address space.' % 
+        #        (module['id'], register['id']))
+
+        for bitfield_node in register_node.iter('bitfield'):
+            bitfield = {
+                'id': bitfield_node.attrib['id'].strip('_'),
+                'description': bitfield_node.attrib['description'],
+                'size': int(bitfield_node.attrib['width']),
+                'resetval': hex2int(bitfield_node.attrib.get('resetval', '0x0')),
+                'first': int(bitfield_node.attrib['end']),
+                'last': int(bitfield_node.attrib['begin']),
+            }
+            register['bitfields'].append(bitfield)
+
+        register['size'] = register['size'] * register['instances']
+
+        registers.append(register)
+    return registers
 
 
 def parse_file(outdir, device_path):
@@ -93,7 +134,6 @@ def parse_file(outdir, device_path):
             module = {
                 'id': module_node.attrib.get('id') or module_node.attrib.get('name'),
                 'path': module_path,
-                'size': (int(instance_node.attrib['size'], 16) + 1) * 8,
                 'registers': [],
                 'instances': [{
                     'baseaddr': hex2int(instance_node.attrib['baseaddr']),
@@ -113,44 +153,18 @@ def parse_file(outdir, device_path):
 
             offset = 0
 
-            for register_node in module_node.iter('register'):
-                register = {
-                    'id': register_node.attrib['id'].strip('_'),
-                    'size': int(register_node.attrib['width']),
-                    'description': register_node.attrib.get('description', ''),
-                    'bitfields': [],
-                }
+            module['registers'] = walk_registers(module_node, module)
 
-                if 'offset' in register_node.attrib:
-                    offset = int(register_node.attrib['offset'], 16)
-                    register['offset'] = hex2int(offset)
-                else:
-                    offset += int(register['size'] / 8)
-                    register['offset'] = hex2int(offset)
+            for group_node in module_node.findall('group'):
+                module['registers'] += walk_registers(group_node, module, base_offset=hex2int(group_node.attrib['offset']))
 
-                if register['offset'] > (module['size'] / 8):
-                    print('WARNING: Register %s.%s offset is outside of module address space.' % 
-                        (module['id'], register['id']))
-
-                for bitfield_node in register_node.iter('bitfield'):
-                    bitfield = {
-                        'id': bitfield_node.attrib['id'].strip('_'),
-                        'description': bitfield_node.attrib['description'],
-                        'size': int(bitfield_node.attrib['width']),
-                        'resetval': hex2int(bitfield_node.attrib.get('resetval', '0x0')),
-                        'first': int(bitfield_node.attrib['end']),
-                        'last': int(bitfield_node.attrib['begin']),
-                    }
-                    register['bitfields'].append(bitfield)
-
-                if module['id'] == 'Rti' and register['id'] in ('RTISETINTENA', 'RTICLEARINTENA'):
-                    patch_RTI_INTENA(register)
-
-                module['registers'].append(register)
+            module['registers'].sort(key=lambda x: x['offset'])
 
             if len(module['registers']) == 0:
                 print('WARNING: Module %s has no registers!' % module['id'])
             else:
+                last_register = module['registers'][-1]
+                module['size'] = (last_register['offset'] * 8) + (last_register['size'] * last_register['instances'])
                 device['modules'][module['id']] = module
 
     device_template = env.get_template('device.ads')
