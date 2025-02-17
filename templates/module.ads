@@ -12,11 +12,11 @@ package {{ device.id }}.{{ module.id }} is
    {% for register in module.registers -%}
    {% if register.bitfields -%}
    {% for bitfield in register.bitfields -%}
-   subtype {{ register.id }}_{{ bitfield.id }}_Field is {% if bitfield.size == 1 %}Bit{% else %}UInt{{ bitfield.size }}{% endif %};
+   subtype {{ register.id }}_{{ bitfield.id }}_Field is {% if bitfield.size == 1 %}Boolean{% else %}UInt{{ bitfield.size }}{% endif %};
    {% endfor %}
    type {{ register.id }}_Register is record
       {% for bitfield in register.bitfields -%}
-      {{ bitfield.id|rename }} : {{ register.id }}_{{ bitfield.id }}_Field := {{ bitfield.resetval }};
+      {{ bitfield.id|rename }} : {{ register.id }}_{{ bitfield.id }}_Field := {% if bitfield.size == 1 %}{% if bitfield.resetval == 0 %}False{% else %}True{% endif %}{% else %}{{ bitfield.resetval }}{% endif %};
       --  {{ bitfield.description }}
       {% endfor %}
    end record
